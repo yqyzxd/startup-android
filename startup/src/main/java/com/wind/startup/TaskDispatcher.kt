@@ -1,9 +1,10 @@
 package com.wind.startup
 
 import android.content.Context
+import com.wind.process.Processes
 import java.util.concurrent.CountDownLatch
 
-class TaskDispatcher private constructor(){
+object TaskDispatcher{
 
     /**
      * 所有添加的任务
@@ -17,67 +18,69 @@ class TaskDispatcher private constructor(){
 
     private var mWaitTasks=mutableListOf<ITask>()
     private var mCountDownLatch:CountDownLatch?=null
-    companion object{
-        var sDebug:Boolean=false
-        var sMainProcess=false
-        private var sInited=false
-        fun init(context: Context){
-            sInited=true
-            sMainProcess=ProcessUtil.isMainProcess(context)
-        }
 
-        fun setDebug(debug:Boolean){
-            sDebug=debug
-        }
 
-        fun newInstance():TaskDispatcher{
-            if (!sInited){
-                throw IllegalStateException("must call init(context) first")
-            }
-            return TaskDispatcher()
+    private var mDebug:Boolean=false
+
+    private var mMainProcess=false
+    private var mInitialized=false
+
+    internal fun isDebug() = mDebug
+    internal fun isMainProcess() = mMainProcess
+
+    fun initialize(context: Context,debug: Boolean=false){
+        if (!mInitialized) {
+            mInitialized = true
+            mDebug = debug
+            mMainProcess = Processes.isMainProcess(context)
         }
     }
 
 
 
-    fun add(task: ITask): TaskDispatcher {
-        //todo 分析依赖 谁依赖我 而不是我依赖谁
+    fun add(task: ITask): TaskDispatcher{
+        if (!mInitialized){
+            throw IllegalStateException("Have you called initialize function?")
+        }
         analyze(task)
         mTasks.add(task)
         return this
     }
 
+    /**
+     *  get all who depends on me
+     */
     private fun analyze(task: ITask) {
         if (task.needWait()){
             mWaitTasks.add(task)
         }
         task.dependsOn()?.forEach {
-           var list= mDepends.get(it)
+           var list= mDepends[it]
             if (list==null){
                 list= mutableListOf()
-                mDepends.put(it, list)
+                mDepends[it] = list
             }
             (list as MutableList).add(task)
         }
 
     }
 
-
+    /**
+     * start all tasks
+     */
     fun start() {
         //对tasks 进行有向无环图构造，并输出拓扑结构
-        var graph=buildGraph(mTasks,mDepends)
+        val graph=buildGraph(mTasks,mDepends)
         //输出graph
-        var topologicalSortedList=graph.topologicalSort()
+        val topologicalSortedList=graph.topologicalSort()
 
-        var result= mutableListOf<ITask>()
+        val result= mutableListOf<ITask>()
         for (i in 0 until mTasks.size){
-            var index=topologicalSortedList.get(i)
-
-            result.add(mTasks.get(index))
-
+            val index= topologicalSortedList[i]
+            result.add(mTasks[index])
         }
 
-        if (sDebug){
+        if (mDebug){
             println("--------TaskDispatcher---------")
             result.forEach {
                 print("${it.javaClass.simpleName} ")
@@ -94,33 +97,39 @@ class TaskDispatcher private constructor(){
     }
 
     private fun buildGraph(tasks: MutableList<ITask>, depends: MutableMap<Class<out ITask>, List<ITask>>): Graph {
-        var graph=Graph(tasks.size)
-        var taskClasses= mutableListOf<Class<ITask>>()
+        val graph=Graph(tasks.size)
+        val taskClasses= mutableListOf<Class<ITask>>()
         tasks.forEach {
             taskClasses.add(it.javaClass)
         }
 
         depends.forEach{
             val from=taskClasses.indexOf(it.key)
-            it.value.forEach {
-                val to=tasks.indexOf(it)
+            it.value.forEach { task->
+                val to=tasks.indexOf(task)
                 graph.addEdge(from,to)
             }
-
         }
 
         return graph
     }
 
-    fun satisfy(task: ITask) {
-        val tasks=mDepends.get(task.javaClass)
+    internal fun satisfy(task: ITask) {
+        val tasks= mDepends[task.javaClass]
         tasks?.forEach {
             it.satisfy()
         }
     }
 
+    internal fun markTaskDone(task: ITask) {
+        if (task.needWait()){
+            mCountDownLatch?.countDown()
+        }
+    }
 
-
+    /**
+     * wait all tasks to finish
+     */
     fun await(){
 
         if (mWaitTasks.isNotEmpty()) {
@@ -130,15 +139,7 @@ class TaskDispatcher private constructor(){
             }catch (e: InterruptedException){
                 e.printStackTrace()
             }
-
         }
     }
-
-    fun markTaskDone(task: ITask) {
-        if (task.needWait()){
-            mCountDownLatch?.countDown()
-        }
-    }
-
 
 }
