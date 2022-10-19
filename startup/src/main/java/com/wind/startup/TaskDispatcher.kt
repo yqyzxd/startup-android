@@ -4,7 +4,7 @@ import android.content.Context
 import com.wind.process.Processes
 import java.util.concurrent.CountDownLatch
 
-object TaskDispatcher{
+class TaskDispatcher private constructor() {
 
     /**
      * 所有添加的任务
@@ -14,34 +14,40 @@ object TaskDispatcher{
     /**
      * List<ITask>任务集合 依赖 类型为Class<ITask>的任务
      */
-    private var mDepends= mutableMapOf<Class<out ITask>,List<ITask>>()
+    private var mDepends = mutableMapOf<Class<out ITask>, List<ITask>>()
 
-    private var mWaitTasks=mutableListOf<ITask>()
-    private var mCountDownLatch:CountDownLatch?=null
+    private var mWaitTasks = mutableListOf<ITask>()
+    private var mCountDownLatch: CountDownLatch? = null
 
 
-    private var mDebug:Boolean=false
+    companion object {
+        private var mDebug: Boolean = false
+        private var mMainProcess = false
+        private var mInitialized = false
 
-    private var mMainProcess=false
-    private var mInitialized=false
-
-    internal fun isDebug() = mDebug
-    internal fun isMainProcess() = mMainProcess
-
-    fun initialize(context: Context,debug: Boolean=false){
-        if (!mInitialized) {
-            mInitialized = true
-            mDebug = debug
-            mMainProcess = Processes.isMainProcess(context)
+        @JvmStatic
+        fun initialize(context: Context, debug: Boolean = false) {
+            if (!mInitialized) {
+                mInitialized = true
+                mDebug = debug
+                mMainProcess = Processes.isMainProcess(context)
+            }
         }
+
+        fun newInstance(): TaskDispatcher {
+            if (!mInitialized) {
+                throw IllegalStateException("Have you called initialize function?")
+            }
+            return TaskDispatcher()
+        }
+
+
+        internal fun isDebug() = mDebug
+        internal fun isMainProcess() = mMainProcess
     }
 
 
-
-    fun add(task: ITask): TaskDispatcher{
-        if (!mInitialized){
-            throw IllegalStateException("Have you called initialize function?")
-        }
+    fun add(task: ITask): TaskDispatcher {
         analyze(task)
         mTasks.add(task)
         return this
@@ -51,13 +57,13 @@ object TaskDispatcher{
      *  get all who depends on me
      */
     private fun analyze(task: ITask) {
-        if (task.needWait()){
+        if (task.needWait()) {
             mWaitTasks.add(task)
         }
         task.dependsOn()?.forEach {
-           var list= mDepends[it]
-            if (list==null){
-                list= mutableListOf()
+            var list = mDepends[it]
+            if (list == null) {
+                list = mutableListOf()
                 mDepends[it] = list
             }
             (list as MutableList).add(task)
@@ -70,17 +76,17 @@ object TaskDispatcher{
      */
     fun start() {
         //对tasks 进行有向无环图构造，并输出拓扑结构
-        val graph=buildGraph(mTasks,mDepends)
+        val graph = buildGraph(mTasks, mDepends)
         //输出graph
-        val topologicalSortedList=graph.topologicalSort()
+        val topologicalSortedList = graph.topologicalSort()
 
-        val result= mutableListOf<ITask>()
-        for (i in 0 until mTasks.size){
-            val index= topologicalSortedList[i]
+        val result = mutableListOf<ITask>()
+        for (i in 0 until mTasks.size) {
+            val index = topologicalSortedList[i]
             result.add(mTasks[index])
         }
 
-        if (mDebug){
+        if (mDebug) {
             println("--------TaskDispatcher---------")
             result.forEach {
                 print("${it.javaClass.simpleName} ")
@@ -91,23 +97,26 @@ object TaskDispatcher{
 
 
         result.forEach {
-            it.executor().execute(TaskRunnable(it,this))
+            it.executor().execute(TaskRunnable(it, this))
         }
 
     }
 
-    private fun buildGraph(tasks: MutableList<ITask>, depends: MutableMap<Class<out ITask>, List<ITask>>): Graph {
-        val graph=Graph(tasks.size)
-        val taskClasses= mutableListOf<Class<ITask>>()
+    private fun buildGraph(
+        tasks: MutableList<ITask>,
+        depends: MutableMap<Class<out ITask>, List<ITask>>
+    ): Graph {
+        val graph = Graph(tasks.size)
+        val taskClasses = mutableListOf<Class<ITask>>()
         tasks.forEach {
             taskClasses.add(it.javaClass)
         }
 
-        depends.forEach{
-            val from=taskClasses.indexOf(it.key)
-            it.value.forEach { task->
-                val to=tasks.indexOf(task)
-                graph.addEdge(from,to)
+        depends.forEach {
+            val from = taskClasses.indexOf(it.key)
+            it.value.forEach { task ->
+                val to = tasks.indexOf(task)
+                graph.addEdge(from, to)
             }
         }
 
@@ -115,14 +124,14 @@ object TaskDispatcher{
     }
 
     internal fun satisfy(task: ITask) {
-        val tasks= mDepends[task.javaClass]
+        val tasks = mDepends[task.javaClass]
         tasks?.forEach {
             it.satisfy()
         }
     }
 
     internal fun markTaskDone(task: ITask) {
-        if (task.needWait()){
+        if (task.needWait()) {
             mCountDownLatch?.countDown()
         }
     }
@@ -130,13 +139,13 @@ object TaskDispatcher{
     /**
      * wait all tasks to finish
      */
-    fun await(){
+    fun await() {
 
         if (mWaitTasks.isNotEmpty()) {
-            mCountDownLatch= CountDownLatch(mWaitTasks.size)
+            mCountDownLatch = CountDownLatch(mWaitTasks.size)
             try {
                 mCountDownLatch?.await()
-            }catch (e: InterruptedException){
+            } catch (e: InterruptedException) {
                 e.printStackTrace()
             }
         }
