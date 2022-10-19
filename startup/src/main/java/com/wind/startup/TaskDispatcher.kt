@@ -20,6 +20,7 @@ class TaskDispatcher private constructor() {
     private var mWaitTasks = mutableListOf<ITask>()
     private var mCountDownLatch: CountDownLatch? = null
 
+    private var mCatchAction: ((Throwable) -> Unit)? = null
 
     companion object {
         private var mDebug: Boolean = false
@@ -72,10 +73,21 @@ class TaskDispatcher private constructor() {
 
     }
 
+    internal fun errorAction():(Throwable) -> Unit{
+        return mCatchAction?: {t -> throw t }
+    }
+    /**
+     * catch task's error
+     */
+    fun catch(action: (Throwable) -> Unit) : TaskDispatcher{
+        mCatchAction = action
+        return this
+    }
+
     /**
      * start all tasks
      */
-    fun start() {
+    fun start(): TaskDispatcher {
         //对tasks 进行有向无环图构造，并输出拓扑结构
         val graph = buildGraph(mTasks, mDepends)
         //输出graph
@@ -102,7 +114,7 @@ class TaskDispatcher private constructor() {
         result.forEach {
             it.executor().execute(TaskRunnable(it, this))
         }
-
+        return this
     }
 
     private fun buildGraph(
@@ -142,14 +154,14 @@ class TaskDispatcher private constructor() {
     /**
      * wait all tasks to finish
      */
-    fun await(timeoutMillis:Long = 0) {
+    fun await(timeoutMillis: Long = 0) {
 
         if (mWaitTasks.isNotEmpty()) {
             try {
-                if (timeoutMillis <= 0){
+                if (timeoutMillis <= 0) {
                     mCountDownLatch?.await()
-                }else{
-                    mCountDownLatch?.await(timeoutMillis,TimeUnit.MILLISECONDS)
+                } else {
+                    mCountDownLatch?.await(timeoutMillis, TimeUnit.MILLISECONDS)
                 }
 
             } catch (e: InterruptedException) {

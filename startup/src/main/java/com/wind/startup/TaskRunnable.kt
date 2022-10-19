@@ -16,7 +16,12 @@ class TaskRunnable(private val task:ITask, private val dispatcher: TaskDispatche
             if (TaskDispatcher.isDebug()){
                 Log.d("TaskDispatcher","run ${task.javaClass.simpleName}")
             }
-            task.run()
+            try {
+                task.run()
+            }catch (t:Throwable){
+                dispatcher.errorAction().invoke(t)
+            }
+
         }
 
         dispatcher.satisfy(task)
