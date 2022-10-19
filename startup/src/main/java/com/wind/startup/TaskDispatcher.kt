@@ -3,6 +3,7 @@ package com.wind.startup
 import android.content.Context
 import com.wind.process.Processes
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 class TaskDispatcher private constructor() {
 
@@ -94,7 +95,9 @@ class TaskDispatcher private constructor() {
             println()
             println("--------TaskDispatcher---------")
         }
-
+        if (mWaitTasks.isNotEmpty()) {
+            mCountDownLatch = CountDownLatch(mWaitTasks.size)
+        }
 
         result.forEach {
             it.executor().execute(TaskRunnable(it, this))
@@ -139,12 +142,16 @@ class TaskDispatcher private constructor() {
     /**
      * wait all tasks to finish
      */
-    fun await() {
+    fun await(timeoutMillis:Long = 0) {
 
         if (mWaitTasks.isNotEmpty()) {
-            mCountDownLatch = CountDownLatch(mWaitTasks.size)
             try {
-                mCountDownLatch?.await()
+                if (timeoutMillis <= 0){
+                    mCountDownLatch?.await()
+                }else{
+                    mCountDownLatch?.await(timeoutMillis,TimeUnit.MILLISECONDS)
+                }
+
             } catch (e: InterruptedException) {
                 e.printStackTrace()
             }
